@@ -25,3 +25,7 @@ ChangeLog
 *.patch
 *.diff
 *.pcm
+
+## VIM temporary files
+.*.swp
+.*.swo
