@@ -15,7 +15,9 @@
 #include "TVector2.h"
 #include "TMath.h"
 #include "TString.h"
+#ifdef MCDATA
 #include "TSBSSimDecoder.h"
+#endif
 #include <vector>
 #include <cassert>
 #include <functional>

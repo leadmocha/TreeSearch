@@ -24,6 +24,7 @@
 
 #ifdef MCDATA
 #include "SimDecoder.h"      // for Podd::MCHitInfo
+using namespace Podd;
 #endif
 
 #include <iostream>
@@ -31,7 +32,6 @@
 #include <stdexcept>
 
 using namespace std;
-using namespace Podd;
 
 namespace TreeSearch {
 

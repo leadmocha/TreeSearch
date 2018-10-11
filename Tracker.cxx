@@ -50,10 +50,10 @@
 #ifdef MCDATA
  #include "Hit.h"
 #include "GEMHit.h"
+using namespace Podd;
 #endif
 
 using namespace std;
-using namespace Podd;
 
 typedef string::size_type ssiz_t;
 

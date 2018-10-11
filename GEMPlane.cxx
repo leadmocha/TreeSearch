@@ -870,7 +870,9 @@ void fcn(int& npar, double* deriv, double& f, double par[], int flag)
 #endif
 #ifdef PRINT_CLUSTER_DETAIL
 	cout<<setw(6)<<(Int_t)fADC[istrip]<<"  ";
-	cout<<" maxTs: "<<mStrip[istrip].maxTimeSample<<" SigType: "<<fMCHitInfo[istrip].fSigType
+	cout<<" maxTs: "<<mStrip[istrip].maxTimeSample;
+#ifdef MCDATA
+	cout<<" SigType: "<<fMCHitInfo[istrip].fSigType
 	    <<" = ";
 	if(fMCHitInfo[istrip].fSigType&0x1){	  cout<<"P "; getchar();	}
 	if(fMCHitInfo[istrip].fSigType&0x2)cout<<"S ";
@@ -886,8 +888,11 @@ void fcn(int& npar, double* deriv, double& f, double par[], int flag)
 	    cout<<" peaktime: "<<setw(5)<<(Int_t)fMCHitInfo[istrip].vClusterPeakTime[i_c];
 	    cout<<" weight: "<<setw(5)<<std::fixed<<std::setprecision(2)<<fMCHitInfo[istrip].vClusterStripWeight[i_c]<<endl;
 	  }
+#endif // MCDATA
 	cout<<endl;
 #endif
+
+#ifdef MCDATA
 	if(fMCHitInfo[istrip].fSigType&0x4 ) 
 	  ncross_talk++;
 	//need to add 1). (pos_prim-pos_bg)^2,
@@ -983,7 +988,6 @@ void fcn(int& npar, double* deriv, double& f, double par[], int flag)
 	}
 
 
-#ifdef MCDATA
 	// If doing MC data, analyze the strip truth information
 	if( mc_data ) {
 	  TSBSMCHitInfo& mc = fMCHitInfo[istrip];
@@ -1039,7 +1043,10 @@ void fcn(int& npar, double* deriv, double& f, double par[], int flag)
       
       //FitPulse(sampleAdc,nsample, shapingtime, peaktime, adcmax_fit);
       //cout<<"peakTime: "<<peaktime<<endl;
-      if(peaktime>90 ||peaktime<30)
+      // FIXME: What was this line supposed to do? It's missing brackets
+      // and breaks several lines below. I commented out this line only,
+      // not the getchar() that was already commented out.
+      //if(peaktime>90 ||peaktime<30)
 	//getchar();
       
 
