@@ -1509,7 +1509,7 @@ void fcn(int& npar, double* deriv, double& f, double par[], int flag)
 	  fMapType = kGassiplexAdapter1;
 	}
       }
-      else if( TString("table").CompareTo(mapping,cmp) ) {
+      else if( TString("table").CompareTo(mapping,cmp) == 0 ) {
 	if( fChanMap.empty() ) {
 	  Error( Here(here), "Channel mapping table requested, but no map "
 		 "defined. Specify chanmap in database." );
