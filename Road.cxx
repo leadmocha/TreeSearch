@@ -792,7 +792,7 @@ Bool_t Road::CollectCoordinates()
     for( Pvec_t::size_type j = 0; j < npts; j++) {
       register Point* p = selected[j];
       register Double_t r = w[j] = 1.0 / ( p->res() * p->res() );
-      curModuleOrder +=  (p->hit)->GetModuleID()<<(2*(p->hit)->GetPlaneNum());
+      curModuleOrder +=  ((p->hit)->GetModuleID()+1)<<(3*(p->hit)->GetPlaneNum());
       
       //GEMHit* ap = new TreeSearch::GEMHit();
       //cout<<p->hit->GetModuleID()<<" ### "<<(p->hit)->GetPlaneNum()<<endl;getchar();
