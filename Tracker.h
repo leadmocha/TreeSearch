@@ -62,6 +62,8 @@ namespace TreeSearch {
     virtual Int_t   DefineVariables( EMode mode = kDefine );
     virtual void    Print(const Option_t* opt) const;
     virtual void    SetDebug( Int_t level );
+    virtual void    SetBuiltinCrateMap(Bool_t v = true) { fBuiltinCrateMap = v; }
+    virtual Bool_t  UseBuiltinCrateMap() { return fBuiltinCrateMap; }
 
     virtual Int_t   Begin( THaRunBase* r=0 );
     virtual Int_t   End( THaRunBase* r=0 );
@@ -139,6 +141,7 @@ namespace TreeSearch {
 
     // Configuration and parameters
     THashTable*    fCrateMap;         // Map of DAQ modules
+    Bool_t         fBuiltinCrateMap;  // Use our cratemap or default Podd?
     Double_t       fMinProjAngleDiff; // Min coord axis angle diff required
     TRotation      fRotation;         // Rotation Tracker -> lab frame
     TRotation      fInvRot;           // Rotation lab frame -> Tracker

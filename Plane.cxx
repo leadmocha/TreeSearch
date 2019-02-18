@@ -350,20 +350,22 @@ Int_t Plane::ReadDatabaseCommon( const TDatime& date )
     return status;
 
   // Retrieve DAQ module parameters for our crateslots
-  for( Int_t imod = 0; imod < fDetMap->GetSize(); ++imod ) {
-    THaDetMap::Module* d = fDetMap->GetModule(imod);
-    fTracker->LoadDAQmodel(d);
-    fTracker->LoadDAQresolution(d);
-    if( TestBit(kTDCReadout) )
-      d->MakeTDC();
-    else
-      d->MakeADC();
-    UInt_t nchan = fTracker->GetDAQnchan(d);
-    if( d->hi >= nchan ) {
-      Error( Here(here), "Detector map channel out of range for module "
-          "cr/sl/lo/hi = %u/%u/%u/%u. Must be < %u. Fix database.",
-          d->crate, d->slot, d->lo, d->hi, nchan );
-      return kInitError;
+  if(fTracker->UseBuiltinCrateMap()) {
+    for( Int_t imod = 0; imod < fDetMap->GetSize(); ++imod ) {
+      THaDetMap::Module* d = fDetMap->GetModule(imod);
+      fTracker->LoadDAQmodel(d);
+      fTracker->LoadDAQresolution(d);
+      if( TestBit(kTDCReadout) )
+        d->MakeTDC();
+      else
+        d->MakeADC();
+      UInt_t nchan = fTracker->GetDAQnchan(d);
+      if( d->hi >= nchan ) {
+        Error( Here(here), "Detector map channel out of range for module "
+            "cr/sl/lo/hi = %u/%u/%u/%u. Must be < %u. Fix database.",
+            d->crate, d->slot, d->lo, d->hi, nchan );
+        return kInitError;
+      }
     }
   }
 

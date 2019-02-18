@@ -371,7 +371,7 @@ private:
 
 //_____________________________________________________________________________
 Tracker::Tracker( const char* name, const char* desc, THaApparatus* app )
-  : THaTrackingDetector(name,desc,app), fCrateMap(0),
+  : THaTrackingDetector(name,desc,app), fCrateMap(0), fBuiltinCrateMap(true),
     fMinProjAngleDiff(kMinProjAngleDiff), fIsRotated(false),
     fAllPartnered(false), fMaxThreads(1), fThreads(0),
     fMinReqProj(3), f3dMatchvalScalefact(1), f3dMatchCut(0),
@@ -2576,7 +2576,8 @@ Int_t Tracker::ReadDatabase( const TDatime& date )
   assert( GetCrateMapDBcols() >= 5 );
   DBRequest request[] = {
     { "planeconfig",       &planeconfig,       kString },
-    { "cratemap",          cmap,               kIntM,   GetCrateMapDBcols() },
+    { "cratemap",          cmap,               kIntM,   GetCrateMapDBcols(),
+       !fBuiltinCrateMap },
 #ifdef MCDATA
     { "MCdata",            &mc_data,           kInt,    0, 1 },
 #endif
@@ -2597,7 +2598,7 @@ Int_t Tracker::ReadDatabase( const TDatime& date )
   err = LoadDB( file, date, request, fPrefix );
   fclose(file);
 
-  if( !err ) {
+  if( !err && fBuiltinCrateMap ) {
     if( cmap->empty() ) {
       Error(Here(here), "No cratemap defined. Set \"cratemap\" in database.");
     } else {
@@ -2622,8 +2623,11 @@ Int_t Tracker::ReadDatabase( const TDatime& date )
       }
       status = kOK;
     }
+    delete cmap; cmap = 0;
+  } else {
+    status = kOK;
   }
-  delete cmap; cmap = 0;
+
   if( status != kOK )
     return status;
 
