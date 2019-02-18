@@ -49,7 +49,17 @@ extern Double_t      fpulsex[20];
 extern Double_t      fpulsey[20];
 
 namespace TreeSearch {
-
+  // Got this map from Danning. Maps the read channel number to corresponding
+  // APV channel number. (The mapping is due to the multiplexing nature of
+  // the readout).
+  const int kMPDAPVMAP[128] = {1, 33, 65, 97, 9, 41, 73, 105, 17, 49, 81, 113,
+    25, 57, 89, 121, 3, 35, 67, 99, 11, 43, 75, 107, 19, 51, 83, 115, 27, 59,
+    91, 123, 5, 37, 69, 101, 13, 45, 77, 109, 21, 53, 85, 117, 29, 61, 93,
+    125, 7, 39, 71, 103, 15, 47, 79, 111, 23, 55, 87, 119, 31, 63, 95, 127,
+    0, 32, 64, 96, 8, 40, 72, 104, 16, 48, 80, 112, 24, 56, 88, 120, 2, 34,
+    66, 98, 10, 42, 74, 106, 18, 50, 82, 114, 26, 58, 90, 122, 4, 36, 68, 100,
+    12, 44, 76, 108, 20, 52, 84, 116, 28, 60, 92, 124, 6, 38, 70, 102, 14, 46,
+    78, 110, 22, 54, 86, 118, 30, 62, 94, 126};
 
 
   // Sanity limit on number of channels (strips)
@@ -64,6 +74,8 @@ namespace TreeSearch {
       fGoodHit(0), fDnoise(0), fNrawStrips(0), fNhitStrips(0), fHitOcc(0),
       fOccupancy(0), fADCMap(0)
   {
+    fStripsPerChannel = 1;
+    fStripOrderedData = 0;
     // Constructor
 
     static const char* const here = "GEMPlane";
@@ -144,6 +156,8 @@ namespace TreeSearch {
       memset( fGoodHit, 0, fNelem*sizeof(Byte_t) );
       fSigStrips.clear();
       fStripsSeen.assign( fNelem, false );
+      fStrips.clear();
+      fStrips.reserve(fNelem);
     }
 
     fNhitStrips = fNrawStrips = 0;
@@ -193,8 +207,56 @@ namespace TreeSearch {
       assert( fChanMap.size() == static_cast<Vint_t::size_type>(fNelem) );
       ret = fChanMap[idx];
       break;
+    default:
+      ret = -1;
     }
     assert( ret >= 0 and ret < fNelem );
+    return ret;
+  }
+
+  //_____________________________________________________________________________
+  Int_t GEMPlane::MapChannel( Int_t effChan, Int_t chan) const
+  {
+    assert(chan>=0 && chan<128);
+    // Right now, the only map type that should call this is kMPDAPV/V2
+    Int_t nvals = 0;  // Number of map entries per apv
+    Int_t impd = 0;   // index of mpd_id
+    Int_t iadc = 0;   // index of adc_id
+    Int_t ipos = 0;   // index of pos
+    Int_t iinv = 0;   // index of invert
+    switch(fMapType) {
+      case kMPDAPV:
+        nvals = 8;
+        impd = 2;
+        iadc = 4;
+        ipos = 6;
+        iinv = 7;
+        break;
+      case kMPDAPV2:
+        nvals = 6;
+        impd = 0;
+        iadc = 2;
+        ipos = 4;
+        iinv = 5;
+        break;
+      default:
+        break;
+    }
+    assert(nvals>0); // This ensures only a valid MPD map calls this version
+    assert(effChan>=0 && effChan < 65536); // Must fit into 16 bits
+    Int_t mpd_id = (effChan>>8)&0xFF;
+    Int_t adc_id = effChan&0xFF;
+    Int_t n = fChanMap.size()/nvals;
+    Int_t ret = -1;
+    for(Int_t i = 0; i < n && ret==-1; i++) {
+      if( mpd_id == fChanMap[impd + i*nvals] &&
+          adc_id == fChanMap[iadc + i*nvals]) {
+        ret = kMPDAPVMAP[chan];
+        ret += (127-2*ret)*fChanMap[iinv + i*nvals];
+        ret += 128*fChanMap[ipos + i*nvals];
+      }
+    }
+    assert(ret>=0 && ret<= fNelem);
     return ret;
   }
 
@@ -514,63 +576,191 @@ void fcn(int& npar, double* deriv, double& f, double par[], int flag)
       THaDetMap::Module * d = fDetMap->GetModule(imod);
       // GEM module ID
       Int_t moduleID = d->plane; //0 1 2....
-      //Common mode storage
+      // Typically, fcModeSize is 128 and each channel in the detmap
+      // corresponds to one strip. However, sometimes, one channel corresponds
+      // to in APV25, and hence fcModeSize is set to 1, and
+      // fStripsPerChannel are set to 128
       assert((d->hi-d->lo+1)%fcModeSize==0);// checking total channels is 128*n
       Int_t Napvs = (d->hi-d->lo+1)/fcModeSize; // Number of groups of 128 strips
-      vector<Float_t> commonMode[Napvs][fMaxSamp]; // storing value for calculating common mode
-      Float_t cMode[Napvs][fMaxSamp]; //common mode value of each group of 128 channels and each sample
+      if(Napvs==0) // Just in case less than 128 channels. Should be unusual,
+        Napvs = 1; // but better safe than sorry!
+
+      // First we read all the data from evData and organize them like so:
+      // [apv][strip][adc_samples], where the actual strip number is recorded
+      // in another array.
+      std::vector<Vflt_t > samples_data[Napvs];
+      Vint_t strips[Napvs];
 
       // Read the all channels in current DAQ-module
       Int_t nchan = evData.GetNumChan( d->crate, d->slot ); //
 
       for( Int_t ichan = 0; ichan < nchan; ++ichan ) {
-	Int_t chan = evData.GetNextChan( d->crate, d->slot, ichan );
-	//	cout<<chan<<"  "<<ichan<<endl;
-	if( chan < d->lo or chan > d->hi ) continue; // not part of this detector
-      
-	Int_t istrip = MapChannel( d->first + ((d->reverse) ? d->hi - chan : chan - d->lo) ); // Map channel number to strip number
-	// Test for duplicate istrip, if found, warn and skip
-	assert( istrip >= 0 and istrip < fNelem );
-	if( fStripsSeen[istrip] ) {
-	  Warning( Here(here), "Duplicate strip number %d in plane %s, event %d. "
-		   "Ignorning it. Fix your detector crate slot map.",
-		   istrip, GetName(), evData.GetEvNum() );
-	  continue;
-	}
-	fStripsSeen[istrip] = true;
-	// For the APV25 analog pipeline, multiple "hits" on a decoder channel
-	// correspond to time samples 25 ns apart
-	Int_t nsamp = evData.GetNumHits( d->crate, d->slot, chan );
-	assert( nsamp > 0 );
-	++fNrawStrips;
-	nsamp = TMath::Min( nsamp, static_cast<Int_t>(fMaxSamp) );  
+        Int_t chan = evData.GetNextChan( d->crate, d->slot, ichan );
+        Int_t chan_idx = d->first + ((d->reverse) ? d->hi - chan : chan - d->lo);
+        //	cout<<chan<<"  "<<ichan<<endl;
+        if( chan < d->lo or chan > d->hi ) continue; // not part of this detector
+        Int_t apv = (int)(chan_idx/fcModeSize);
+        assert(apv<Napvs);
 
-	// populate vector commonMode[][], all information from data is here
-	for( Int_t isamp = 0; isamp < nsamp; ++isamp ) {
-	  Float_t fsamp = static_cast<Float_t> ( evData.GetData(d->crate, d->slot, chan, isamp) );
-	  //  cout<<fsamp<<endl;
-	  commonMode[(int)(ichan/fcModeSize)][isamp].push_back(fsamp);
-	}
+        Int_t nsamp = evData.GetNumHits( d->crate, d->slot, chan );
+        if( fStripsPerChannel == 1) {
+          // In the simple case, each channel in the detmap corresponds to
+          // just one strip.
+          Int_t istrip = MapChannel(chan_idx);
+          // Test for duplicate istrip, if found, warn and skip
+          assert( istrip >= 0 and istrip < fNelem );
+          if( fStripsSeen[istrip] ) {
+            Warning( Here(here), "Duplicate strip number %d in plane %s, event %d. "
+                "Ignorning it. Fix your detector crate slot map.",
+                istrip, GetName(), evData.GetEvNum() );
+            continue;
+          }
 
+          fStripsSeen[istrip] = true;
+          fStrips.push_back(istrip);
+          // For the APV25 analog pipeline, multiple "hits" on a decoder channel
+          // correspond to time samples 25 ns apart
+          Int_t nsamp = evData.GetNumHits( d->crate, d->slot, chan );
+          assert( nsamp > 0 );
+          ++fNrawStrips;
+          nsamp = TMath::Min( nsamp, static_cast<Int_t>(fMaxSamp) );  
+          strips[apv].push_back(istrip);
+
+          // populate vector commonMode[][], all information from data is here
+          Vflt_t samps;
+          samps.resize(nsamp);
+          for( Int_t isamp = 0; isamp < nsamp; ++isamp ) {
+            samps[isamp] = static_cast<Float_t> (
+                evData.GetData(d->crate, d->slot, chan, isamp) );
+          }
+          samples_data[apv].push_back(samps);
 
 #ifdef MCDATA
-	// If doing MC data, save the truth information for each strip
-	if( mc_data ) {
-	  Double_t fmccharge=0;
-	  fMCHitList.push_back(istrip);
-	  fMCHitInfo[istrip] = simdata->GetSBSMCHitInfo(d->crate,d->slot,chan);
-	  //	fMCCharge[istrip]  = fmccharge;
-	  //cout<<fmccharge<<endl;
-	  //fHitTime[istrip] = fMCHitInfo[istrip].fMCTime;
-	}
+          // If doing MC data, save the truth information for each strip
+          if( mc_data ) {
+            Double_t fmccharge=0;
+            fMCHitList.push_back(istrip);
+            fMCHitInfo[istrip] = simdata->GetSBSMCHitInfo(d->crate,d->slot,chan);
+            //	fMCCharge[istrip]  = fmccharge;
+            //cout<<fmccharge<<endl;
+            //fHitTime[istrip] = fMCHitInfo[istrip].fMCTime;
+          }
 #endif
+        } else if (fStripOrderedData) { // Each channel is more than one strip, and is strip ordered
+          nsamp /= fStripsPerChannel;
+          if(nsamp > fMaxSamp)
+            nsamp = fMaxSamp;
+          Int_t isamp = -1;
+          Int_t strip = -1;
+          Int_t ihit = 0;
+          Vflt_t samps[fStripsPerChannel];
+          while(++isamp < nsamp) {
+            for(Int_t istrip = 0; istrip < Int_t(fStripsPerChannel); istrip++,ihit++) {
+              strip = MapChannel( chan, istrip );
+              assert( strip >= 0 and strip < fNelem);
+              if(isamp==0 && fStripsSeen[strip]) {
+                Warning( Here(here), "Duplicate strip number %d in plane %s, event %d. "
+                    "Ignorning it. Fix your detector crate slot map.",
+                    istrip, GetName(), evData.GetEvNum() );
+              } else {
+                // For the APV25 analog pipeline, with no SSP, multiple "hits"
+                // on a decoder channel correspond to time samples 25 ns apart
+                // organized as [strip1_ts1, strip2_ts1, .... stripn_ts1][strip1_ts2, ..., [stripn_ts2]....
+                // This is a special case where chan is (mpd_id<<8)|adc_id
+                if(isamp==0) {
+                  samps[istrip].resize(nsamp);
+                  fStripsSeen[strip] = true;
+                }
+                samps[istrip][isamp] = static_cast<Float_t> (
+                      evData.GetData(d->crate, d->slot, chan, ihit) );
+              }
+            }
+          }
+          for(Int_t istrip = 0; istrip < fStripsPerChannel; istrip++) {
+            Vflt_t lsamps;
+            lsamps.reserve(samps[istrip].size());
+            for(size_t k = 0; k < samps[istrip].size(); k++) {
+              lsamps.push_back(samps[istrip][k]);
+            }
+            samples_data[apv].push_back(lsamps);
+            strip = MapChannel( chan, istrip );
+            fStrips.push_back(strip);
+            strips[apv].push_back(strip);
+            ++fNrawStrips;
+          }
+        } else { // When each channel corresponds to more than one strip and is sample ordered
 
-      }  // end of loop on chans
+          // The raw adc value is the apv_ch_number (from 0-127)
+          Int_t isamp = 0;
+          Int_t istrip = -1;
+          while(isamp < nsamp) {
+            istrip = MapChannel( chan, evData.GetRawData(
+                  d->crate,d->slot,chan,isamp) );
+
+            // Test for duplicate istrip, if found, warn and skip
+            assert( istrip >= 0 and istrip < fNelem );
+            if( fStripsSeen[istrip] ) {
+              Warning( Here(here), "Duplicate strip number %d in plane %s, event %d. "
+                  "Ignorning it. Fix your detector crate slot map.",
+                  istrip, GetName(), evData.GetEvNum() );
+              while(++isamp<nsamp && istrip ==
+                  MapChannel( chan, evData.GetRawData(
+                      d->crate,d->slot,chan,isamp) ) ) {
+                // Do nothing, just increment isamp
+              }
+            } else {
+              // For the APV25 analog pipeline, multiple "hits" on a decoder
+              // channel correspond to time samples 25 ns apart *for one or
+              // more strips.* This is a special case where chan is
+              // (mpd_id<<8)|adc_id
+              Vflt_t samps;
+              samps.reserve(fMaxSamp+1);
+              samps.push_back(static_cast<Float_t> (
+                    evData.GetData(d->crate, d->slot, chan, isamp) ) );
+              while(++isamp<nsamp && istrip ==
+                  MapChannel( chan, evData.GetRawData(
+                      d->crate,d->slot,chan,isamp) ) ) {
+                if(samps.size() < fMaxSamp)
+                  samps.push_back(static_cast<Float_t> (
+                        evData.GetData(d->crate, d->slot, chan, isamp) ) );
+              }
+              samples_data[apv].push_back(samps);
+              fStripsSeen[istrip] = true;
+              fStrips.push_back(istrip);
+              strips[apv].push_back(istrip);
+              ++fNrawStrips;
+            } // end loop while isamp <nsamp
+          } // end if fStripsPerChannel > 1
+        } // end while loop isamp<nsamp
+      } // end loop ichan
+
+      // What follows now is filling the Common mode storage that was here
+      // previously, but now takes data from the sample_data and strips
+      // vectors instead of evData.
+
+      // (Juan Carlos Cornejo Oct 24, 2018): It doesn't seem like the common
+      // mode stuff  is actually used by anything, but I'm leaving it
+      // intact in case someone intended to modify and make use of it in the
+      // future.
+      vector<Float_t> commonMode[Napvs][fMaxSamp]; // storing value for calculating common mode
+      Float_t cMode[Napvs][fMaxSamp]; //common mode value of each group of 128 channels and each sample
 
       // Calculating common mode from vector commonMode[][] and store in Int cMode[][]
       // 1 loop check adc range, could add more loop to get more precise commonMode, this will be O(n), better than sorting O(nlogn)/O(n^2), time matters for online processing
       for(int iapv=0; iapv<Napvs;iapv++)
 	{
+          // October 24, 2018 (jc2): Fill commonMode here so that the following
+          // loop's logic doesn't change. (commonMode is an array with the
+          // following structure [apv][sample_number][adc_sample]
+          for(size_t istrip = 0; istrip < samples_data[iapv].size(); istrip++) {
+            for(UInt_t isamp  = 0; isamp<samples_data[iapv][istrip].size();
+                isamp++) {
+              assert(isamp<6);
+              commonMode[iapv][isamp].push_back(
+                  samples_data[iapv][istrip][isamp]);
+            }
+          }
+          // Back to the old logic of using commonMode...
 	  // cout<<d->crate<<" "<<d->slot<<" apv: "<<iapv<<endl;
 	  for(UInt_t isamp=0; isamp<fMaxSamp; isamp++)
 	    {
@@ -594,22 +784,23 @@ void fcn(int& npar, double* deriv, double& f, double par[], int flag)
 
       // subtracting cMode[][]
       // do zero suppression, fit timing and store hits in fSigStrip
-      for( Int_t ichan = 0; ichan < nchan; ++ichan ) {
-	StripData_t stripdata;
-	
-	Vflt_t samples;
-	if( fMaxSamp > 1 )
-	  samples.reserve(fMaxSamp);
+      // (Now uses the samples_data vector already filled above)
+      for(int iapv=0; iapv<Napvs;iapv++) {
+        for(size_t ist = 0; ist < samples_data[iapv].size(); ist++) {
+          StripData_t stripdata;
 
-	Int_t chan = evData.GetNextChan( d->crate, d->slot, ichan );
-	if( chan < d->lo or chan > d->hi ) continue; // not part of this detector
-	Int_t istrip =
-	  MapChannel( d->first + ((d->reverse) ? d->hi - ichan : ichan - d->lo) );
+          Vflt_t samples;
+          UInt_t nsamps = (Int_t)(samples_data[iapv][ist].size());
+          if( nsamps > 1 )
+            samples.reserve(nsamps);
+
+          Int_t istrip = strips[iapv][ist];
 	
-	for(UInt_t isamp=0; isamp<fMaxSamp; isamp++)
+	for(UInt_t isamp=0; isamp<nsamps; isamp++)
 	  {
-	    Float_t fsamp = static_cast<Float_t>
-	    ( evData.GetData(d->crate, d->slot, chan, isamp) );
+	    Float_t fsamp = samples_data[iapv][ist][isamp];
+            // 20181024 (jc2): Why is this commented out? Doesn't this
+            // defeat the whole purpose of computing cMode above?
 	    // fsamp-=cMode[ichan/fcModeSize][isamp];
 	    samples.push_back( fsamp );
 	  }
@@ -629,8 +820,9 @@ void fcn(int& npar, double* deriv, double& f, double par[], int flag)
 	fADCcor[istrip] = stripdata.adcSum;
 	fGoodHit[istrip] = not TestBit(kCheckPulseShape) or stripdata.pass;
 
-	AddStrip( istrip , moduleID);
-      } // end of loop on chan
+	AddStrip( istrip , imod);
+        } // end loop on istrip
+      } // end of loop on iapv
       // cout<<GetName()<<" "<<moduleID<<endl;
     }    // end of loop modules
 
@@ -1178,7 +1370,7 @@ void fcn(int& npar, double* deriv, double& f, double par[], int flag)
     //  sort(*fHits,(*fHits).end());
     // cout<<"#########: "<<fCoveredPriHit<<"  "<<fTotalPriHit<<"  "<<(Double_t)(fCoveredPriHit)/fTotalPriHit<<endl;//getchar();
     
-    cout<<"DD: Number of hits in plane "<<" : "<<nHits<<endl;
+    //cout<<"DD: Number of hits in plane "<<" : "<<nHits<<endl;
     return nHits;
    
   }
@@ -1283,6 +1475,7 @@ void fcn(int& npar, double* deriv, double& f, double par[], int flag)
     // Register variables in global list
 
     RVarDef vars[] = {
+      { "strips",         "strips number of seen strips",     "fStrips" },
       { "nrawstrips",     "nstrips with decoder data",        "fNrawStrips" },
       { "nhitstrips",     "nstrips > 0",                      "fNhitStrips" },
       { "nstrips",        "Num strips with hits > adc.min",   "GetNsigStrips()" },
@@ -1443,13 +1636,6 @@ void fcn(int& npar, double* deriv, double& f, double par[], int flag)
       return kOK;
     }
 
-    Int_t nchan = fDetMap->GetTotNumChan();
-    if( nchan != fNelem ) {
-      Error( Here(here), "Number of detector map channels (%d) "
-	     "disagrees with number of strips (%d)", nchan, fNelem );
-      return kInitError;
-    }
-
     SetBit( kDoNoise, do_noise );
     SetBit( kCheckPulseShape, check_pulse_shape );
 
@@ -1531,6 +1717,46 @@ void fcn(int& npar, double* deriv, double& f, double par[], int flag)
 	  }
 	}
 	fMapType = kTable;
+      //} else if( TString("mpd-apv").BeginsWith(mapping,cmp) ) {
+      } else if( TString(mapping).BeginsWith("mpd-apv",cmp) ) {
+        if( fChanMap.empty() ) {
+          Error( Here(here), "Channel mapping %s requested, but no chanmap"
+             " was defined. Ensure chanamp is specified in the database "
+             " for this plane.",mapping.Data());
+          return kInitError;
+        }
+        TString map_name("mpd-apv"); // Default
+        TString map_format("crate slot mpd_id gem_id adc_id i2c pos invert");
+        fStripsPerChannel = 128;
+        fcModeSize = 1; // Reset fcModeSize back to 1 APV = 128 channels
+        Int_t nvals = 8;
+        Int_t napvs = fNelem/128;
+        // Which version is specified?
+        // v1(default): crate slot mpd_id gem_id adc_id i2c pos invert
+        // v2: mpd_id gem_id adc_id i2c pos invert
+        if( TString("mpd-apv2").CompareTo(mapping,cmp)  == 0 ||
+            TString("mpd-apv2-ssp").CompareTo(mapping,cmp) == 0 ) {
+          fMapType = kMPDAPV2;
+          nvals = 6;
+          map_name = "mpd-apv2";
+          map_format = "mpd_id gem_id adc_id i2c pos invert";
+        } else {
+          fMapType = kMPDAPV;
+        }
+        if(TString(mapping).EndsWith("-nossp",cmp)) {
+          fStripOrderedData = 1;
+          map_name = mapping;
+        }
+        // Should be nvals*napv entries
+        if(fChanMap.size()%nvals != 0 || ( fChanMap.size() !=
+              UInt_t(napvs*nvals) ) ){
+          Error( Here(here), "Channel mapping %s requested, which "
+              " requires %d entries per channel in the following format:\n%s\n"
+              " mpd_id gem_id adc_id i2c pos invert\n "
+              " for a total of %d*%d = %d entries Fix database.",
+              mapping.Data(),nvals,map_format.Data(),nvals,napvs,nvals*napvs);
+          return kInitError;
+        }
       } else {
 	Error( Here(here), "Unknown channel mapping type %s. Fix database.",
 	       mapping.Data() );
@@ -1539,6 +1765,15 @@ void fcn(int& npar, double* deriv, double& f, double par[], int flag)
 
     } else
       fChanMap.clear();
+
+    Int_t nchan = fStripsPerChannel*fDetMap->GetTotNumChan();
+    if( nchan != fNelem ) {
+      Error( Here(here), "Number of detector map channels (%d) "
+	     "disagrees with number of strips (%d)", nchan, fNelem );
+      return kInitError;
+    }
+    fNapvs = fDetMap->GetTotNumChan()/fcModeSize;
+
 
     if( !fPed.empty() and fPed.size() != static_cast<UInt_t>(fNelem) ) {
       Error( Here(here), "Size of pedestal array (%u) must equal "

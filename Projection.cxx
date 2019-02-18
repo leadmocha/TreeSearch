@@ -463,7 +463,7 @@ THaAnalysisObject::EStatus Projection::Init( const TDatime& date )
       return fStatus = kInitError;
     assert( GetNallPlanes() == fHitpattern->GetNplanes() );
 
-    cout<<fHitpattern->GetBinWidth()<<endl;getchar();
+    cout<<fHitpattern->GetBinWidth()<<endl;//getchar();
 
     // Determine maximum search distance (in bins) for combining patterns,
     // separately for front and back planes since they can have different

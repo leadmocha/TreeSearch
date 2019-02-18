@@ -61,12 +61,15 @@ namespace TreeSearch {
 
     // Hardware channel mapping
     enum EChanMapType { kOneToOne, kReverse, kGassiplexAdapter1,
-			kGassiplexAdapter2, kTable };
+      kGassiplexAdapter2, kTable, kMPDAPV, kMPDAPV2 };
 
     
     EChanMapType  fMapType;     // Type of hardware channel mapping to use
     Vint_t        fChanMap;     // [fNelem] Optional hardware channel mapping
     Int_t         MapChannel( Int_t idx ) const;
+    Int_t         MapChannel( Int_t effChan, Int_t chan) const;
+    UInt_t        fStripsPerChannel; // Default 1, but can be 128 for certain DAQs
+    Int_t         fStripOrderedData; // True if all each consecutive sample corresponds to a different strip
 
     // Parameters, calibration, flags
     UInt_t        fMaxClusterSize;// Maximum size of a clean cluster of strips
@@ -82,6 +85,7 @@ namespace TreeSearch {
     Int_t         fpedestal_sigma;
     Int_t         ftmp_pedestal_rms;
     Int_t         ftmp_comm_range;
+    Int_t         fNapvs;       // How many APV25 (of 128 ch each) we have
 
 
 
@@ -96,6 +100,7 @@ namespace TreeSearch {
     Vint_t        fSigStrips;   // Ordered strip numbers with signal (adccor > minampl)
     std::map<Int_t, Int_t> fmStripModule; // Module ID of the strip;
     Vbool_t       fStripsSeen;  // Flags for duplicate strip number detection
+    Vint_t        fStrips;      // DebuggingData: strip number of seen strips
 
     UInt_t        fNrawStrips;  // Statistics: strips with any data
     UInt_t        fNhitStrips;  // Statistics: strips > 0

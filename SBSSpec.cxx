@@ -29,7 +29,7 @@ namespace SBS {
 
 //_____________________________________________________________________________
 SBSSpec::SBSSpec( const char* name, const char* description,
-		  UInt_t nsectors )
+		  UInt_t nsectors, const char *prefix)
   : THaSpectrometer( name, description )
 {
   // Constructor. Define a GEM tracker detector for each of the 'nsectors'
@@ -49,11 +49,13 @@ SBSSpec::SBSSpec( const char* name, const char* description,
 
   for( UInt_t i = 1; i <= nsectors; ++i ) {
     stringstream sn, sd;
-    sn << "tracker." << i;
+    //sn << "tracker." << i;
+    sn << prefix;// << i;
     sd << "SBS tracker in sector " << i;
     SBS::GEMTracker* theTracker = new SBS::GEMTracker( sn.str().c_str(),
 							   sd.str().c_str() );
     theTracker->SetSectorNumber(i-1);
+    theTracker->SetBuiltinCrateMap(false);
     Int_t ret = AddDetector( theTracker );
     if( ret != 0 ) {
       stringstream s;

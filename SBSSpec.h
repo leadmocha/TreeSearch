@@ -65,7 +65,8 @@ namespace SBS {
   class SBSSpec : public THaSpectrometer {
 
   public:
-    SBSSpec( const char* name, const char* description, UInt_t nsectors );
+    SBSSpec( const char* name, const char* description, UInt_t nsectors,
+       const char *prefix = "gem");
     virtual ~SBSSpec();
 
     virtual void      Clear( Option_t* opt="" );

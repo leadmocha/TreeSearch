@@ -143,6 +143,11 @@ Int_t GEMPlane::ReadGeometry( FILE* file, const TDatime& date,
 
   Double_t depth;
   //Int_t gbl = GetDBSearchLevel(fPrefix);
+  // If these are optional, might want to set some defaults
+  fD0 = 0.0;
+  fDX = fDY = 4e-4;
+  depth = 1;
+  nModule = 1;
   DBRequest request[] = {
     {"d0",          &fD0,           kDouble, 0, 1},
     {"dx",          &fDX,           kDouble, 0, 1},
@@ -158,7 +163,7 @@ Int_t GEMPlane::ReadGeometry( FILE* file, const TDatime& date,
   
 
   for (int j=1; j<nModule+1; j++){
-    mOffsets[j]=0;
+    mOffsets[j-1]=0;
     Double_t offset_temp;
     DBRequest module_request[] = {
       {"offset",          &offset_temp,           kDouble, 0, 1},
@@ -166,11 +171,11 @@ Int_t GEMPlane::ReadGeometry( FILE* file, const TDatime& date,
     };
     ostringstream module_prefix(fPrefix, ios_base::ate);
     module_prefix<<j<<".";
-    cout<<module_prefix.str().c_str()<<endl;
+    //cout<<module_prefix.str().c_str()<<endl;
     int err = LoadDB( file, date, module_request, module_prefix.str().c_str());
     if( err ) exit(2);
     mOffsets[j-1] = offset_temp;
-    //cout<<offset_temp<<" "<<mOffsets[j]<<endl;getchar();     
+    //cout<<offset_temp<<" "<<mOffsets[j-1]<<endl;getchar();     
   }
 
   // Sanity checks

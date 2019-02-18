@@ -29,7 +29,11 @@ namespace SBS {
     
     virtual Bool_t  Contains( Double_t x, Double_t y ) const;
     virtual Double_t GetModuleOffsets(Int_t module) {
-      return mOffsets.find(module)->second;//mOffsets[module];
+      // Ensure that it finds it!
+      std::map<Int_t,Double_t>::iterator it = 
+        mOffsets.find(module);//mOffsets[module];
+      assert(it!=mOffsets.end());
+      return it->second;
       //might not matter, but who knows
     };
   protected:
