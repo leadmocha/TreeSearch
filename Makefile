@@ -66,7 +66,7 @@ export VERBOSE = 1
 # Compile extra diagnostic code (extra computations and global variables)
 export TESTCODE = 1
 # Compile support code for MC input data
-export MCDATA = 1
+#export MCDATA = 1
 
 #export I387MATH = 1
 export EXTRAWARN = 1
@@ -99,7 +99,7 @@ ifeq ($(strip $(INCDIRS)),)
 endif
 
 ROOTCFLAGS   := $(shell root-config --cflags)
-ROOTLIBS     := $(shell root-config --libs)
+ROOTLIBS     := $(shell root-config --libs) -lMinuit
 ROOTGLIBS    := $(shell root-config --glibs)
 ROOTBIN      := $(shell root-config --bindir)
 CXX          := $(shell root-config --cxx)
@@ -132,6 +132,9 @@ ifeq ($(CXXVER),4)
 CXXFLAGS     += -Wextra -Wno-missing-field-initializers
 DICTCXXFLG   := -Wno-strict-aliasing 
 endif
+endif
+ifdef CXXMAXERRORS
+CXXFLAGS += -fmax-errors=$(CXXMAXERRORS)
 endif
 SOFLAGS       = -std=c++11 -shared
 ifdef I387MATH
@@ -272,6 +275,7 @@ $(SOLIDDICT).cxx: $(SHDR) $(SOLIDLINKDEF)
 $(SBSDICT).cxx: $(BHDR) $(SBSLINKDEF)
 	@echo "Generating dictionary $(SBSDICT)..."
 	$(ROOTBIN)/rootcint -f $@ -c $(INCLUDES) $(DEFINES) $^
+	#$(ROOTBIN)/rootcint -f $@ -rmf $(SBSDICT).rootmap -c $(INCLUDES) $(DEFINES) $^
 
 install:	all
 		$(error Please define install yourself)
