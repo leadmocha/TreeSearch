@@ -673,6 +673,8 @@ void fcn(int& npar, double* deriv, double& f, double par[], int flag)
                 }
                 samps[istrip][isamp] = static_cast<Float_t> (
                       evData.GetData(d->crate, d->slot, chan, ihit) );
+                if(do_pedestal_subtraction)
+                  samps[istrip][isamp]-=fPed[istrip];
               }
             }
           }
@@ -715,14 +717,21 @@ void fcn(int& npar, double* deriv, double& f, double par[], int flag)
               // (mpd_id<<8)|adc_id
               Vflt_t samps;
               samps.reserve(fMaxSamp+1);
-              samps.push_back(static_cast<Float_t> (
-                    evData.GetData(d->crate, d->slot, chan, isamp) ) );
+              Float_t sampv = 0; // sample value
+              sampv = evData.GetData(d->crate, d->slot, chan, isamp);//
+              if(do_pedestal_subtraction)
+                sampv -= fPed[istrip];
+              samps.push_back(sampv);
               while(++isamp<nsamp && istrip ==
                   MapChannel( chan, evData.GetRawData(
                       d->crate,d->slot,chan,isamp) ) ) {
-                if(samps.size() < fMaxSamp)
-                  samps.push_back(static_cast<Float_t> (
-                        evData.GetData(d->crate, d->slot, chan, isamp) ) );
+                if(samps.size() < fMaxSamp) {
+                  sampv = evData.GetData(d->crate, d->slot, chan, isamp);
+                  if(do_pedestal_subtraction)
+                    sampv-=fPed[istrip];
+                  samps.push_back(sampv);
+                }
+                        
               }
               samples_data[apv].push_back(samps);
               fStripsSeen[istrip] = true;
@@ -765,12 +774,21 @@ void fcn(int& npar, double* deriv, double& f, double par[], int flag)
 	  for(UInt_t isamp=0; isamp<fMaxSamp; isamp++)
 	    {
 	      int Commsize = commonMode[iapv][isamp].size();
+        Vflt_t common_sort;
+        common_sort.insert(common_sort.begin(),&(commonMode[iapv][isamp][0]),&(commonMode[iapv][isamp][Commsize-1]));
+        sort(common_sort.begin(),common_sort.end());
      	      int NcommMode = 0;
 	      Float_t tempcMode = 0;
-	      for(int is=0;is<Commsize;is++)
+        int common_mode_first = 0;
+        int common_mode_last = Commsize;
+        if(Commsize==128) {
+          common_mode_first = 28;
+          common_mode_last = 100;
+        }
+	      for(int is=common_mode_first;is<Commsize&&is<common_mode_last;is++)
 		{
-		  Float_t tempADC = commonMode[iapv][isamp][is];
-		  if(tempADC>(ftmp_comm_range)||tempADC<-ftmp_comm_range)continue; // constant 200 to be put in database, this number should come from a clean, no signal run, and be determined by evaluating the common mode distribution.
+		  Float_t tempADC = common_sort[is];
+		  if(Commsize!=128&&(tempADC>(ftmp_comm_range)||tempADC<-ftmp_comm_range))continue; // constant 200 to be put in database, this number should come from a clean, no signal run, and be determined by evaluating the common mode distribution.
 		  tempcMode+=tempADC;
 		  NcommMode++;
 		}
@@ -801,7 +819,8 @@ void fcn(int& npar, double* deriv, double& f, double par[], int flag)
 	    Float_t fsamp = samples_data[iapv][ist][isamp];
             // 20181024 (jc2): Why is this commented out? Doesn't this
             // defeat the whole purpose of computing cMode above?
-	    // fsamp-=cMode[ichan/fcModeSize][isamp];
+            if(do_noise_subtraction)
+               fsamp-=cMode[iapv][isamp];
 	    samples.push_back( fsamp );
 	  }
 
@@ -1585,6 +1604,7 @@ void fcn(int& npar, double* deriv, double& f, double par[], int flag)
     fChanMap.clear();
     fPed.clear();
     fAmplSigma = 0.36; // default, an educated guess
+    ftmp_comm_range = 0.; // a very simple guess
 
     Int_t gbl = GetDBSearchLevel(fPrefix);
     try {
@@ -1603,7 +1623,7 @@ void fcn(int& npar, double* deriv, double& f, double par[], int flag)
 	{ "adc.sigma",      &fAmplSigma,      kDouble,  0, 1, gbl },
 	{ "check_pulse_shape",&check_pulse_shape, kInt, 0, 1, gbl },
 	{ "pedestal_sigma", &fpedestal_sigma,      kInt,0, 1, gbl },
-	{ "tmp_pedestal_rms",&ftmp_pedestal_rms,  kInt, 0, 1, gbl },
+	{ "tmp_pedestal_rms",&ftmp_pedestal_rms,  kDoubleV, 0, 1, gbl },
 	{ "tmp_comm_range", &ftmp_comm_range,  kInt,    0, 1, gbl },
 	{ "commonmode_groupsize", &fcModeSize,kInt,     0, 1, gbl },
 	{ 0 }
